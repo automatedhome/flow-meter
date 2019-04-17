@@ -1,14 +1,15 @@
 package main
 
 import (
-        "log"
-        "flag"
-        "time"
-        "net/url"
-        "fmt"
-        "strconv"
+	"flag"
+	"fmt"
+	"log"
+	"net/url"
+	"strconv"
+	"time"
 
-        "github.com/eclipse/paho.mqtt.golang"
+	mqttclient "github.com/automatedhome/flow-meter/pkg/mqttclient"
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
 var publishTopic string
@@ -18,43 +19,13 @@ var lastMeasurement time.Time
 // FlowRate = 10 corresponds to 10 l/min
 var litersPerRotation float64
 
-func createClientOptions(clientID string, uri *url.URL) *mqtt.ClientOptions {
-	opts := mqtt.NewClientOptions()
-	opts.AddBroker(fmt.Sprintf("tcp://%s", uri.Host))
-	//opts.SetUsername(uri.User.Username())
-	//password, _ := uri.User.Password()
-	//opts.SetPassword(password)
-	opts.SetClientID(clientID)
-	opts.SetKeepAlive(2 * time.Second)
-	opts.SetPingTimeout(1 * time.Second)
-	opts.SetAutoReconnect(true)
-	return opts
-}
-
-func connect(clientID string, uri *url.URL) mqtt.Client {
-	opts := createClientOptions(clientID, uri)
-	client := mqtt.NewClient(opts)
-	token := client.Connect()
-	for !token.WaitTimeout(3 * time.Second) {
-	}
-	if err := token.Error(); err != nil {
-		log.Fatal(err)
-	}
-	return client
-}
-
-func listen(id string, uri *url.URL, topic string) {
-	client := connect(id, uri)
-	client.Subscribe(topic, 0, onMQTTMessage)
-}
-
 func onMQTTMessage(client mqtt.Client, message mqtt.Message) {
 	value, err := strconv.ParseBool(string(message.Payload()))
 	if err != nil {
 		log.Printf("Received incorrect message payload: '%v'\n", message.Payload())
 		return
 	}
-	if ! value {
+	if !value {
 		return
 	}
 	flowRate := calculate(lastMeasurement)
@@ -64,9 +35,9 @@ func onMQTTMessage(client mqtt.Client, message mqtt.Message) {
 func calculate(last time.Time) float64 {
 	now := time.Now()
 	duration := time.Since(lastMeasurement)
-	
+
 	flowRate := litersPerRotation * 60000000000 / float64(duration)
-	
+
 	lastMeasurement = now
 	return flowRate
 }
@@ -81,14 +52,14 @@ func main() {
 
 	publishTopic = *outTopic
 	litersPerRotation = *liters
-	
+
 	brokerURL, _ := url.Parse(*broker)
-	listen(*clientID, brokerURL, *inTopic)
+	mqttclient.New(*clientID, brokerURL, *inTopic, onMQTTMessage)
 
 	log.Printf("Connected to %s as %s and waiting for messages\n", *broker, *clientID)
 
 	lastMeasurement = time.Now()
-	
+
 	// wait forever
-	select{}
+	select {}
 }
