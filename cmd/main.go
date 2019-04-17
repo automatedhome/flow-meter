@@ -19,7 +19,7 @@ var lastMeasurement time.Time
 // FlowRate = 10 corresponds to 10 l/min
 var litersPerRotation float64
 
-func onMQTTMessage(client mqtt.Client, message mqtt.Message) {
+func onMessage(client mqtt.Client, message mqtt.Message) {
 	value, err := strconv.ParseBool(string(message.Payload()))
 	if err != nil {
 		log.Printf("Received incorrect message payload: '%v'\n", message.Payload())
@@ -46,7 +46,8 @@ func main() {
 	broker := flag.String("broker", "tcp://127.0.0.1:1883", "The full url of the MQTT server to connect to ex: tcp://127.0.0.1:1883")
 	clientID := flag.String("clientid", "flow-meter", "A clientid for the connection")
 	inTopic := flag.String("inTopic", "evok/input/4/value", "MQTT topic with a current pin state")
-	outTopic := flag.String("outTopic", "flow/rate", "MQTT topic with a calculated flow rate")
+	outTopic := flag.String("outTopic", "flow/rate", "MQTT topic to post a calculated flow rate")
+	//settingsTopic := flag.String("settingsTopic", "settings/flowmeter", "MQTT topic with flowmeter settings")
 	liters := flag.Float64("litersPerRotation", 1, "How many liters is one rotation (default: 1)")
 	flag.Parse()
 
@@ -54,7 +55,8 @@ func main() {
 	litersPerRotation = *liters
 
 	brokerURL, _ := url.Parse(*broker)
-	mqttclient.New(*clientID, brokerURL, *inTopic, onMQTTMessage)
+	//mqttclient.New(*clientID, brokerURL, []string{*inTopic, *settingsTopic}, onMessage)
+	mqttclient.New(*clientID, brokerURL, []string{*inTopic}, onMessage)
 
 	log.Printf("Connected to %s as %s and waiting for messages\n", *broker, *clientID)
 
