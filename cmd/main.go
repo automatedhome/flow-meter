@@ -48,7 +48,7 @@ func main() {
 	inTopic := flag.String("inTopic", "evok/input/4/value", "MQTT topic with a current pin state")
 	outTopic := flag.String("outTopic", "flow/rate", "MQTT topic to post a calculated flow rate")
 	//settingsTopic := flag.String("settingsTopic", "settings/flowmeter", "MQTT topic with flowmeter settings")
-	liters := flag.Float64("litersPerRotation", 1, "How many liters is one rotation (default: 1)")
+	liters := flag.Float64("litersPerRotation", 0.1, "How many liters is one rotation (default: 0.1)")
 	flag.Parse()
 
 	publishTopic = *outTopic
