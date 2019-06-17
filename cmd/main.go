@@ -45,7 +45,7 @@ func calculate(last time.Time) float64 {
 func main() {
 	broker := flag.String("broker", "tcp://127.0.0.1:1883", "The full url of the MQTT server to connect to ex: tcp://127.0.0.1:1883")
 	clientID := flag.String("clientid", "flow-meter", "A clientid for the connection")
-	inTopic := flag.String("inTopic", "evok/input/4/value", "MQTT topic with a current pin state")
+	inTopic := flag.String("inTopic", "evok/input/6/value", "MQTT topic with a current pin state")
 	outTopic := flag.String("outTopic", "flow/rate", "MQTT topic to post a calculated flow rate")
 	//settingsTopic := flag.String("settingsTopic", "settings/flowmeter", "MQTT topic with flowmeter settings")
 	liters := flag.Float64("litersPerRotation", 0.1, "How many liters is one rotation (default: 0.1)")
