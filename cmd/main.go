@@ -29,7 +29,16 @@ func onMessage(client mqtt.Client, message mqtt.Message) {
 		return
 	}
 	flowRate := calculate(lastMeasurement)
-	client.Publish(publishTopic, 0, false, fmt.Sprintf("%f", flowRate))
+	allok := false
+	for i := 1; i <= 10; i++ {
+		if err := mqttclient.Publish(client, publishTopic, 0, false, fmt.Sprintf("%f", flowRate)); err != nil {
+			allok = true
+			break
+		}
+	}
+	if !allok {
+		log.Fatalln("After 10 retries MQTT message couldn't be sent. Exiting.")
+	}
 }
 
 func calculate(last time.Time) float64 {
