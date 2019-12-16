@@ -12,12 +12,11 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
-var publishTopic string
-var lastMeasurement time.Time
-
-// FlowRate is a constant needed to calculate rotations to liters per minute
-// FlowRate = 10 corresponds to 10 l/min
-var litersPerRotation float64
+var (
+	publishTopic      string
+	lastMeasurement   time.Time
+	litersPerRotation float64
+)
 
 func onMessage(client mqtt.Client, message mqtt.Message) {
 	value, err := strconv.ParseBool(string(message.Payload()))
@@ -29,15 +28,10 @@ func onMessage(client mqtt.Client, message mqtt.Message) {
 		return
 	}
 	flowRate := calculate(lastMeasurement)
-	allok := false
-	for i := 1; i <= 10; i++ {
-		if err := mqttclient.Publish(client, publishTopic, 0, false, fmt.Sprintf("%f", flowRate)); err != nil {
-			allok = true
-			break
-		}
-	}
-	if !allok {
-		log.Fatalln("After 10 retries MQTT message couldn't be sent. Exiting.")
+
+	log.Printf("Current flow rate is %f l/min", flowRate)
+	if err := mqttclient.Publish(client, publishTopic, 0, false, fmt.Sprintf("%f", flowRate)); err != nil {
+		log.Println(err)
 	}
 }
 
@@ -45,7 +39,8 @@ func calculate(last time.Time) float64 {
 	now := time.Now()
 	duration := time.Since(lastMeasurement)
 
-	flowRate := litersPerRotation * 60000000000 / float64(duration)
+	// 60000000000 is needed to convert value to l/min
+	flowRate := litersPerRotation / float64(duration) * 60000000000
 
 	lastMeasurement = now
 	return flowRate
@@ -57,7 +52,7 @@ func main() {
 	inTopic := flag.String("inTopic", "evok/input/6/value", "MQTT topic with a current pin state")
 	outTopic := flag.String("outTopic", "flow/rate", "MQTT topic to post a calculated flow rate")
 	//settingsTopic := flag.String("settingsTopic", "settings/flowmeter", "MQTT topic with flowmeter settings")
-	liters := flag.Float64("litersPerRotation", 0.1, "How many liters is one rotation (default: 0.1)")
+	liters := flag.Float64("litersPerRotation", 0.1, "How many liters is one rotation (default: 0.1 l/rot)")
 	flag.Parse()
 
 	publishTopic = *outTopic
