@@ -4,9 +4,14 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	mqttclient "github.com/automatedhome/common/pkg/mqttclient"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -16,6 +21,14 @@ var (
 	publishTopic      string
 	lastMeasurement   time.Time
 	litersPerRotation float64
+)
+
+var (
+	flow = promauto.NewGauge(prometheus.GaugeOpts{
+		// TODO(paulfantom): change this to m^3 per second to conform to SI
+		Name: "solar_flow_rate_liters_per_minute",
+		Help: "Current flow rate in liters per minute",
+	})
 )
 
 func onMessage(client mqtt.Client, message mqtt.Message) {
@@ -28,6 +41,7 @@ func onMessage(client mqtt.Client, message mqtt.Message) {
 		return
 	}
 	flowRate := calculate(lastMeasurement)
+	flow.Set(flowRate)
 
 	log.Printf("Current flow rate is %f l/min", flowRate)
 	if err := mqttclient.Publish(client, publishTopic, 0, false, fmt.Sprintf("%f", flowRate)); err != nil {
@@ -63,6 +77,9 @@ func main() {
 	mqttclient.New(*clientID, brokerURL, []string{*inTopic}, onMessage)
 
 	log.Printf("Connected to %s as %s and waiting for messages\n", *broker, *clientID)
+
+	http.Handle("/metrics", promhttp.Handler())
+	http.ListenAndServe(":7000", nil)
 
 	lastMeasurement = time.Now()
 
