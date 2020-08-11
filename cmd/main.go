@@ -78,11 +78,9 @@ func main() {
 
 	log.Printf("Connected to %s as %s and waiting for messages\n", *broker, *clientID)
 
-	http.Handle("/metrics", promhttp.Handler())
-	http.ListenAndServe(":7000", nil)
-
 	lastMeasurement = time.Now()
 
-	// wait forever
-	select {}
+	http.Handle("/metrics", promhttp.Handler())
+	// Expose metrics and wait forever as ListenAndServe is blocking
+	http.ListenAndServe(":7000", nil)
 }
