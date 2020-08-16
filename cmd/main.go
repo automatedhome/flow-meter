@@ -29,6 +29,11 @@ var (
 		Name: "solar_flow_rate_liters_per_minute",
 		Help: "Current flow rate in liters per minute",
 	})
+	liters = promauto.NewCounter(prometheus.CounterOpts{
+		// TODO(paulfantom): change this to m^3 to conform to SI
+		Name: "solar_flow_liters_total",
+		Help: "Current number of liters circulated",
+	})
 )
 
 func onMessage(client mqtt.Client, message mqtt.Message) {
@@ -42,6 +47,7 @@ func onMessage(client mqtt.Client, message mqtt.Message) {
 	}
 	flowRate := calculate(lastMeasurement)
 	flow.Set(flowRate)
+	liters.Add(litersPerRotation)
 
 	log.Printf("Current flow rate is %f l/min", flowRate)
 	if err := mqttclient.Publish(client, publishTopic, 0, false, fmt.Sprintf("%f", flowRate)); err != nil {
