@@ -1,26 +1,39 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
-	"log"
 	"net/http"
-	"net/url"
 	"strconv"
 	"time"
 
+	"github.com/gobwas/ws"
+	"github.com/gobwas/ws/wsutil"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-
-	mqttclient "github.com/automatedhome/common/pkg/mqttclient"
-	mqtt "github.com/eclipse/paho.mqtt.golang"
+	"github.com/prometheus/common/log"
 )
 
+type EvokDigitalInput struct {
+	Bitvalue    int    `json:"bitvalue"`
+	ID          int    `json:"glob_dev_id"`
+	Value       int    `json:"value"`
+	Circuit     string `json:"circuit"`
+	Time        int64  `json:"time"`
+	Debounce    int    `json:"debounce"`
+	CounterMode bool   `json:"counter_mode"`
+	Dev         string `json:"dev"`
+}
+
 var (
-	publishTopic      string
 	lastMeasurement   time.Time
 	litersPerRotation float64
+	lastPass          time.Time
+	evokCircuit       string
+	evokAddress       string
 )
 
 var (
@@ -36,26 +49,7 @@ var (
 	})
 )
 
-func onMessage(client mqtt.Client, message mqtt.Message) {
-	value, err := strconv.ParseBool(string(message.Payload()))
-	if err != nil {
-		log.Printf("Received incorrect message payload: '%v'\n", message.Payload())
-		return
-	}
-	if !value {
-		return
-	}
-	flowRate := calculate(lastMeasurement)
-	flow.Set(flowRate)
-	liters.Add(litersPerRotation)
-
-	log.Printf("Current flow rate is %f l/min", flowRate)
-	if err := mqttclient.Publish(client, publishTopic, 0, false, fmt.Sprintf("%f", flowRate)); err != nil {
-		log.Println(err)
-	}
-}
-
-func calculate(last time.Time) float64 {
+func calculate() float64 {
 	now := time.Now()
 	duration := time.Since(lastMeasurement)
 
@@ -66,27 +60,75 @@ func calculate(last time.Time) float64 {
 	return flowRate
 }
 
-func main() {
-	broker := flag.String("broker", "tcp://127.0.0.1:1883", "The full url of the MQTT server to connect to ex: tcp://127.0.0.1:1883")
-	clientID := flag.String("clientid", "flow-meter", "A clientid for the connection")
-	inTopic := flag.String("inTopic", "evok/input/6/value", "MQTT topic with a current pin state")
-	outTopic := flag.String("outTopic", "flow/rate", "MQTT topic to post a calculated flow rate")
-	//settingsTopic := flag.String("settingsTopic", "settings/flowmeter", "MQTT topic with flowmeter settings")
-	liters := flag.Float64("litersPerRotation", 0.1, "How many liters is one rotation (default: 0.1 l/rot)")
+func digitalInput(address string, circuit string) {
+	fmt.Printf("Connecting to EVOK at %s and handling updates for circuit %s\n", address, circuit)
+
+	conn, _, _, err := ws.DefaultDialer.Dial(context.TODO(), evokAddress)
+	if err != nil {
+		panic("Connecting to EVOK failed: " + err.Error())
+	}
+	defer conn.Close()
+
+	msg := "{\"cmd\":\"filter\", \"devices\":[\"input\"]}"
+	if err = wsutil.WriteClientMessage(conn, ws.OpText, []byte(msg)); err != nil {
+		panic("Sending websocket message to EVOK failed: " + err.Error())
+	}
+
+	var inputs []EvokDigitalInput
+	for {
+		payload, err := wsutil.ReadServerText(conn)
+		if err != nil {
+			log.Errorf("Received incorrect data: %#v", err)
+		}
+
+		if err := json.Unmarshal(payload, &inputs); err != nil {
+			log.Errorf("Could not parse received data: %#v", err)
+		}
+
+		if inputs[0].Circuit == evokCircuit && inputs[0].Value == 1 {
+			flow.Set(calculate())
+			liters.Add(litersPerRotation)
+		}
+	}
+}
+
+func httpHealthCheck(w http.ResponseWriter, r *http.Request) {
+	timeout := time.Duration(1 * time.Minute)
+	if lastPass.Add(timeout).After(time.Now()) {
+		w.WriteHeader(200)
+	} else {
+		w.WriteHeader(500)
+	}
+}
+
+func init() {
+	liters := flag.Float64("liters-per-rotation", 0.1, "How many liters is one rotation (default: 0.1 l/rot)")
+	addr := flag.String("evok-address", "ws://localhost:8080/ws", "EVOK websocket API address (default: ws://localhost:8080/ws)")
+	circuit := flag.Int("evok-circuit", 1, "EVOK digital input circuit to which sensor is connected (default: 1)")
 	flag.Parse()
 
-	publishTopic = *outTopic
+	evokCircuit = strconv.Itoa(*circuit)
+	evokAddress = *addr
+
 	litersPerRotation = *liters
-
-	brokerURL, _ := url.Parse(*broker)
-	//mqttclient.New(*clientID, brokerURL, []string{*inTopic, *settingsTopic}, onMessage)
-	mqttclient.New(*clientID, brokerURL, []string{*inTopic}, onMessage)
-
-	log.Printf("Connected to %s as %s and waiting for messages\n", *broker, *clientID)
-
 	lastMeasurement = time.Now()
+}
 
+func main() {
+	// Expose metrics
 	http.Handle("/metrics", promhttp.Handler())
-	// Expose metrics and wait forever as ListenAndServe is blocking
-	http.ListenAndServe(":7000", nil)
+	// Expose healthcheck
+	http.HandleFunc("/health", httpHealthCheck)
+	go func() {
+		if err := http.ListenAndServe(":7000", nil); err != nil {
+			panic("HTTP Server failed: " + err.Error())
+		}
+	}()
+
+	go digitalInput(evokAddress, evokCircuit)
+
+	for {
+		time.Sleep(15 * time.Second)
+		lastPass = time.Now()
+	}
 }
