@@ -1,6 +1,3 @@
-GO111MODULE=on
-export GO111MODULE
-
 APP=flow-meter
 IMAGE=automatedhome/$(APP)
 
