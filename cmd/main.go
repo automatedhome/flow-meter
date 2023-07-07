@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -14,18 +16,12 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/prometheus/common/log"
 )
 
-type EvokDigitalInput struct {
-	Bitvalue    int    `json:"bitvalue"`
-	ID          int    `json:"glob_dev_id"`
-	Value       int    `json:"value"`
-	Circuit     string `json:"circuit"`
-	Time        int64  `json:"time"`
-	Debounce    int    `json:"debounce"`
-	CounterMode bool   `json:"counter_mode"`
-	Dev         string `json:"dev"`
+type EvokDevice struct {
+	Value   int    `json:"value"`
+	Circuit string `json:"circuit"`
+	Dev     string `json:"dev"`
 }
 
 var (
@@ -37,14 +33,19 @@ var (
 )
 
 var (
+	wsConnectionCloses = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "solar_flow",
+		Name:      "websocket_connection_closes_total",
+		Help:      "Total number of websocket connection closes",
+	})
 	flow = promauto.NewGauge(prometheus.GaugeOpts{
 		// TODO(paulfantom): change this to m^3 per second to conform to SI
-		Name: "solar_flow_rate_liters_per_minute",
+		Name: "rate_liters_per_minute",
 		Help: "Current flow rate in liters per minute",
 	})
 	liters = promauto.NewCounter(prometheus.CounterOpts{
 		// TODO(paulfantom): change this to m^3 to conform to SI
-		Name: "solar_flow_liters_total",
+		Name: "liters_total",
 		Help: "Current number of liters circulated",
 	})
 )
@@ -74,15 +75,22 @@ func digitalInput(address string, circuit string) {
 		panic("Sending websocket message to EVOK failed: " + err.Error())
 	}
 
-	var inputs []EvokDigitalInput
+	var inputs []EvokDevice
 	for {
 		payload, err := wsutil.ReadServerText(conn)
 		if err != nil {
-			log.Errorf("Received incorrect data: %#v", err)
+			if err == io.EOF {
+				log.Println("Websocket connection closed.")
+				wsConnectionCloses.Inc()
+				break
+			}
+			log.Printf("Received incorrect data: %#v", err)
+			continue
 		}
 
 		if err := json.Unmarshal(payload, &inputs); err != nil {
-			log.Errorf("Could not parse received data: %#v", err)
+			log.Printf("Could not parse received data: %#v", err)
+			continue
 		}
 
 		if inputs[0].Circuit == evokCircuit && inputs[0].Value == 1 {
