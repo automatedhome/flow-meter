@@ -40,13 +40,15 @@ var (
 	})
 	flow = promauto.NewGauge(prometheus.GaugeOpts{
 		// TODO(paulfantom): change this to m^3 per second to conform to SI
-		Name: "rate_liters_per_minute",
-		Help: "Current flow rate in liters per minute",
+		Namespace: "solar_flow",
+		Name:      "rate_liters_per_minute",
+		Help:      "Current flow rate in liters per minute",
 	})
 	liters = promauto.NewCounter(prometheus.CounterOpts{
 		// TODO(paulfantom): change this to m^3 to conform to SI
-		Name: "liters_total",
-		Help: "Current number of liters circulated",
+		Namespace: "solar_flow",
+		Name:      "liters_total",
+		Help:      "Current number of liters circulated",
 	})
 )
 
